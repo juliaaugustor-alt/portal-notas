@@ -1,10 +1,9 @@
 import streamlit as st
-import pandas as pd
-import os
+import requests
 import re
 from datetime import datetime
 
-ARQUIVO = "solicitacoes.xlsx"
+API_URL = "https://sheetdb.io/api/v1/tn8m9exdlj62v"
 
 st.set_page_config(
     page_title="Solicitação de Nota Fiscal",
@@ -48,66 +47,33 @@ h1 {
 # ==========================
 
 def validar_email(email):
-    padrao = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    padrao = r'^[\\w\\.-]+@[\\w\\.-]+\\.\\w+$'
     return re.match(padrao, email)
 
 def validar_cnpj(cnpj):
-    numeros = re.sub(r'\D', '', cnpj)
+    numeros = re.sub(r'\\D', '', cnpj)
     return len(numeros) == 14
-
-def carregar_dados():
-
-    colunas = [
-        "Protocolo",
-        "Data",
-        "Empresa",
-        "CNPJ",
-        "Email",
-        "Competencia",
-        "Valor PSD",
-        "Valor TC",
-        "Observacoes",
-        "Status"
-    ]
-
-    if os.path.exists(ARQUIVO):
-
-        try:
-
-            df = pd.read_excel(ARQUIVO)
-
-            for coluna in colunas:
-                if coluna not in df.columns:
-                    df[coluna] = ""
-
-            return df
-
-        except:
-            return pd.DataFrame(columns=colunas)
-
-    return pd.DataFrame(columns=colunas)
-
-def salvar_dados(df):
-    df.to_excel(ARQUIVO, index=False)
 
 def gerar_protocolo():
 
     hoje = datetime.now().strftime("%Y%m%d")
 
-    df = carregar_dados()
+    try:
 
-    if len(df) == 0:
-        sequencia = 1
+        resposta = requests.get(API_URL)
+        dados = resposta.json()
 
-    else:
-
-        protocolos = df["Protocolo"].astype(str)
-
-        protocolos_hoje = protocolos[
-            protocolos.str.contains(hoje, na=False)
+        protocolos_hoje = [
+            item.get("Protocolo", "")
+            for item in dados
+            if hoje in item.get("Protocolo", "")
         ]
 
         sequencia = len(protocolos_hoje) + 1
+
+    except:
+
+        sequencia = 1
 
     return f"NF-{hoje}-{sequencia:03d}"
 
@@ -225,37 +191,40 @@ if st.button("📤 Enviar Solicitação"):
 
         protocolo = gerar_protocolo()
 
-        df = carregar_dados()
+        dados = {
+            "data": [{
+                "Protocolo": protocolo,
+                "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "Empresa": empresa,
+                "CNPJ": cnpj,
+                "Email": email,
+                "Competencia": competencia,
+                "Valor PSD": valor_psd,
+                "Valor TC": valor_tc,
+                "Observacoes": observacoes,
+                "Status": "Recebida"
+            }]
+        }
 
-        nova_linha = pd.DataFrame([{
-            "Protocolo": protocolo,
-            "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "Empresa": empresa,
-            "CNPJ": cnpj,
-            "Email": email,
-            "Competencia": competencia,
-            "Valor PSD": valor_psd,
-            "Valor TC": valor_tc,
-            "Observacoes": observacoes,
-            "Status": "Recebida"
-        }])
+        resposta = requests.post(API_URL, json=dados)
 
-        df = pd.concat(
-            [df, nova_linha],
-            ignore_index=True
-        )
+        if resposta.status_code in [200, 201]:
 
-        salvar_dados(df)
-
-        st.success(
-            f"""
+            st.success(
+                f"""
 ✅ Solicitação enviada com sucesso!
 
 Protocolo: {protocolo}
 
 Guarde este número para futuras consultas.
 """
-        )
+            )
+
+        else:
+
+            st.error(
+                "Erro ao enviar a solicitação. Tente novamente."
+            )
 
 # ==========================
 # RODAPÉ
