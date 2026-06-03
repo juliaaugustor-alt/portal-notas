@@ -39,6 +39,11 @@ h1 {
     color: white;
 }
 
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -47,19 +52,21 @@ h1 {
 # ==========================
 
 def validar_email(email):
-    padrao = r'^[\\w\\.-]+@[\\w\\.-]+\\.\\w+$'
-    return re.match(padrao, email)
+    email = email.strip()
+    padrao = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return re.match(padrao, email) is not None
+
 
 def validar_cnpj(cnpj):
-    numeros = re.sub(r'\\D', '', cnpj)
-    return len(numeros) == 14
+    numeros = re.sub(r'\D', '', cnpj)
+    return len(numeros) == 14 and numeros.isdigit()
+
 
 def gerar_protocolo():
 
     hoje = datetime.now().strftime("%Y%m%d")
 
     try:
-
         resposta = requests.get(API_URL)
         dados = resposta.json()
 
@@ -69,22 +76,22 @@ def gerar_protocolo():
             if hoje in item.get("Protocolo", "")
         ]
 
-        sequencia = len(protocolos_hoje) + 1
+        sequencia = max(
+            [int(p.split("-")[-1]) for p in protocolos_hoje if p and p.split("-")[-1].isdigit()],
+            default=0
+        ) + 1
 
     except:
-
         sequencia = 1
 
     return f"NF-{hoje}-{sequencia:03d}"
+
 
 # ==========================
 # CABEÇALHO
 # ==========================
 
-st.markdown(
-    "<h1>📄 Solicitação de Nota Fiscal</h1>",
-    unsafe_allow_html=True
-)
+st.markdown("<h1>📄 Solicitação de Nota Fiscal</h1>", unsafe_allow_html=True)
 
 st.markdown("""
 Preencha os dados abaixo para solicitar emissão, correção ou ajuste de nota fiscal.
@@ -98,9 +105,7 @@ st.divider()
 
 st.subheader("Dados da Empresa")
 
-empresa = st.text_input(
-    "Nome da Empresa *"
-)
+empresa = st.text_input("Nome da Empresa *").strip()
 
 cnpj = st.text_input(
     "CNPJ *",
@@ -110,7 +115,7 @@ cnpj = st.text_input(
 email = st.text_input(
     "E-mail para acompanhamento *",
     placeholder="Ex.: financeiro@empresa.com.br"
-)
+).strip()
 
 # ==========================
 # DADOS DA SOLICITAÇÃO
@@ -119,18 +124,8 @@ email = st.text_input(
 st.subheader("Dados da Solicitação")
 
 meses = [
-    "Janeiro",
-    "Fevereiro",
-    "Março",
-    "Abril",
-    "Maio",
-    "Junho",
-    "Julho",
-    "Agosto",
-    "Setembro",
-    "Outubro",
-    "Novembro",
-    "Dezembro"
+    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
 ]
 
 competencias = []
@@ -171,7 +166,7 @@ if st.button("📤 Enviar Solicitação"):
 
     erros = []
 
-    if not empresa.strip():
+    if not empresa:
         erros.append("Nome da Empresa")
 
     if not validar_cnpj(cnpj):
@@ -181,50 +176,43 @@ if st.button("📤 Enviar Solicitação"):
         erros.append("E-mail válido")
 
     if erros:
-
         st.error(
-            "Preencha corretamente os seguintes campos:\n\n- "
-            + "\n- ".join(erros)
+            "Preencha corretamente os seguintes campos:\n\n- " +
+            "\n- ".join(erros)
         )
 
     else:
+        with st.spinner("Enviando solicitação..."):
+            protocolo = gerar_protocolo()
 
-        protocolo = gerar_protocolo()
+            dados = {
+                "data": {
+                    "Protocolo": protocolo,
+                    "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "Empresa": empresa,
+                    "CNPJ": cnpj,
+                    "Email": email,
+                    "Competencia": competencia,
+                    "Valor PSD": valor_psd,
+                    "Valor TC": valor_tc,
+                    "Observacoes": observacoes,
+                    "Status": "Recebida"
+                }
+            }
 
-        dados = {
-            "data": [{
-                "Protocolo": protocolo,
-                "Data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "Empresa": empresa,
-                "CNPJ": cnpj,
-                "Email": email,
-                "Competencia": competencia,
-                "Valor PSD": valor_psd,
-                "Valor TC": valor_tc,
-                "Observacoes": observacoes,
-                "Status": "Recebida"
-            }]
-        }
-
-        resposta = requests.post(API_URL, json=dados)
+            resposta = requests.post(API_URL, json=dados)
 
         if resposta.status_code in [200, 201]:
-
-            st.success(
-                f"""
+            st.success(f"""
 ✅ Solicitação enviada com sucesso!
 
 Protocolo: {protocolo}
 
 Guarde este número para futuras consultas.
-"""
-            )
+""")
 
         else:
-
-            st.error(
-                "Erro ao enviar a solicitação. Tente novamente."
-            )
+            st.error("Erro ao enviar a solicitação. Tente novamente.")
 
 # ==========================
 # RODAPÉ
@@ -232,6 +220,4 @@ Guarde este número para futuras consultas.
 
 st.divider()
 
-st.caption(
-    "Em caso de dúvidas, entre em contato com a equipe fiscal."
-)
+st.caption("Em caso de dúvidas, entre em contato com a equipe fiscal.")
