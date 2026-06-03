@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import os
+import requests
 
-ARQUIVO = "solicitacoes.xlsx"
+API_URL = "https://sheetdb.io/api/v1/tn8m9exdlj62v"
 
 # ==========================
 # CONFIGURAÇÃO
@@ -47,67 +47,45 @@ if not st.session_state.logado:
 
 st.markdown("""
 <style>
-
-h1 {
-    color: #7C5AC7;
-}
+h1 { color: #7C5AC7; }
 
 .stButton > button {
     background-color: #A78BFA;
     color: white;
     border-radius: 8px;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================
-# LEITURA DOS DADOS
+# CARREGAR DADOS (SHEETDB)
 # ==========================
 
+@st.cache_data(ttl=10)
 def carregar_dados():
-
-    if not os.path.exists(ARQUIVO):
-
-        return pd.DataFrame(columns=[
-            "Protocolo",
-            "Data",
-            "Empresa",
-            "CNPJ",
-            "Email",
-            "Competencia",
-            "Valor PSD",
-            "Valor TC",
-            "Observacoes",
-            "Status"
-        ])
-
-    return pd.read_excel(ARQUIVO)
+    resposta = requests.get(API_URL)
+    dados = resposta.json()
+    return pd.DataFrame(dados)
 
 df = carregar_dados()
 
 if len(df) == 0:
-
     st.title("📋 Gestão de Solicitações")
     st.info("Nenhuma solicitação encontrada.")
     st.stop()
 
 # ==========================
-# GARANTIR COLUNA STATUS
+# GARANTIR STATUS
 # ==========================
 
 if "Status" not in df.columns:
     df["Status"] = "Recebida"
 
 # ==========================
-# CABEÇALHO
+# DASHBOARD
 # ==========================
 
 st.title("📋 Gestão de Solicitações")
-
-# ==========================
-# DASHBOARD
-# ==========================
 
 recebidas = len(df[df["Status"] == "Recebida"])
 processo = len(df[df["Status"] == "Em Processo de Emissão"])
@@ -127,34 +105,18 @@ st.divider()
 
 empresas = ["Todas"] + sorted(df["Empresa"].astype(str).unique().tolist())
 
-status_lista = [
-    "Todos",
-    "Recebida",
-    "Em Processo de Emissão",
-    "Concluída"
-]
+status_lista = ["Todos", "Recebida", "Em Processo de Emissão", "Concluída"]
 
-empresa_filtro = st.selectbox(
-    "Empresa",
-    empresas
-)
-
-status_filtro = st.selectbox(
-    "Status",
-    status_lista
-)
+empresa_filtro = st.selectbox("Empresa", empresas)
+status_filtro = st.selectbox("Status", status_lista)
 
 df_filtrado = df.copy()
 
 if empresa_filtro != "Todas":
-    df_filtrado = df_filtrado[
-        df_filtrado["Empresa"] == empresa_filtro
-    ]
+    df_filtrado = df_filtrado[df_filtrado["Empresa"] == empresa_filtro]
 
 if status_filtro != "Todos":
-    df_filtrado = df_filtrado[
-        df_filtrado["Status"] == status_filtro
-    ]
+    df_filtrado = df_filtrado[df_filtrado["Status"] == status_filtro]
 
 # ==========================
 # TABELA
@@ -162,10 +124,7 @@ if status_filtro != "Todos":
 
 st.subheader("Solicitações")
 
-st.dataframe(
-    df_filtrado,
-    use_container_width=True
-)
+st.dataframe(df_filtrado, use_container_width=True)
 
 # ==========================
 # DETALHES
@@ -175,16 +134,11 @@ st.divider()
 
 protocolos = df_filtrado["Protocolo"].tolist()
 
-if len(protocolos) > 0:
+if protocolos:
 
-    protocolo = st.selectbox(
-        "Selecione uma solicitação",
-        protocolos
-    )
+    protocolo = st.selectbox("Selecione uma solicitação", protocolos)
 
-    linha = df[
-        df["Protocolo"] == protocolo
-    ].iloc[0]
+    linha = df[df["Protocolo"] == protocolo].iloc[0]
 
     st.subheader("Detalhes")
 
@@ -198,35 +152,20 @@ if len(protocolos) > 0:
 
     novo_status = st.selectbox(
         "Alterar Status",
-        [
-            "Recebida",
-            "Em Processo de Emissão",
-            "Concluída"
-        ],
-        index=[
-            "Recebida",
-            "Em Processo de Emissão",
-            "Concluída"
-        ].index(linha["Status"])
-        if linha["Status"] in [
-            "Recebida",
-            "Em Processo de Emissão",
-            "Concluída"
-        ]
-        else 0
+        ["Recebida", "Em Processo de Emissão", "Concluída"],
+        index=["Recebida", "Em Processo de Emissão", "Concluída"].index(
+            linha["Status"] if linha["Status"] in ["Recebida", "Em Processo"] else "Recebida"
+        )
     )
 
     if st.button("Salvar Status"):
 
-        df.loc[
-            df["Protocolo"] == protocolo,
-            "Status"
-        ] = novo_status
+        update_url = f"{API_URL}/Protocolo/{protocolo}"
 
-        df.to_excel(
-            ARQUIVO,
-            index=False
-        )
+        requests.patch(update_url, json={
+            "Status": novo_status
+        })
 
         st.success("Status atualizado com sucesso.")
+        st.cache_data.clear()
         st.rerun()
